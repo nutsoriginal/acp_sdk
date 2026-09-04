@@ -3,7 +3,7 @@
 require_relative "lib/acp/version"
 
 Gem::Specification.new do |spec|
-  spec.name = "acp_sdk"
+  spec.name = "acp_sdk_async"
   spec.version = ACP::VERSION
   spec.authors = ["nutsoriginal"]
   spec.summary = "Ruby SDK for the Agent Client Protocol (ACP)"

@@ -1,0 +1,14 @@
+# frozen_string_literal: true
+
+require_relative "acp/version"
+require_relative "acp/exceptions"
+require_relative "acp/wait"
+require_relative "acp/meta"
+require_relative "acp/schema_base"
+require_relative "acp/schema"
+require_relative "acp/transport"
+require_relative "acp/connection"
+require_relative "acp/router"
+require_relative "acp/client"
+require_relative "acp/agent"
+require_relative "acp/stdio"

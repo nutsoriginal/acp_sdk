@@ -1,4 +1,4 @@
-# acp_sdk
+# acp_sdk_async
 
 Ruby SDK for the [Agent Client Protocol](https://agentclientprotocol.com) (ACP): typed schema models generated from the official `schema.json`, a JSON-RPC 2.0 connection over NDJSON, client- and agent-side wrappers, and helpers for spawning agents over stdio.
 
@@ -7,7 +7,13 @@ Requires Ruby 3.2+ and runs on [`async`](https://github.com/socketry/async), the
 ## Installation
 
 ```ruby
-gem "acp_sdk", git: "git@github.com:nutsoriginal/acp_sdk.git", branch: "main"
+gem "acp_sdk_async"
+```
+
+From git:
+
+```ruby
+gem "acp_sdk_async", git: "git@github.com:nutsoriginal/acp_sdk.git", branch: "main"
 ```
 
 ```bash
@@ -19,7 +25,7 @@ bundle install
 ACP calls must run inside an Async reactor. `Sync { ... }` starts one, or reuses the current task if you are already inside Falcon/`Async`.
 
 ```ruby
-require "acp_sdk"
+require "acp_sdk_async"
 
 S = ACP::Schema
 
@@ -63,7 +69,7 @@ Incoming requests run as child tasks so a handler can call back into the peer wi
 ## Agent: serve the protocol over stdin/stdout
 
 ```ruby
-require "acp_sdk"
+require "acp_sdk_async"
 
 S = ACP::Schema
 

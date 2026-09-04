@@ -8,7 +8,7 @@ require "async"
 require "minitest/autorun"
 
 $LOAD_PATH.unshift File.expand_path("../lib", __dir__)
-require "acp_sdk"
+require "acp_sdk_async"
 
 module AcpTest
   def run

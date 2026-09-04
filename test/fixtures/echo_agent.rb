@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 $LOAD_PATH.unshift File.expand_path("../../lib", __dir__)
-require "acp_sdk"
+require "acp_sdk_async"
 
 class EchoAgent
   S = ACP::Schema
