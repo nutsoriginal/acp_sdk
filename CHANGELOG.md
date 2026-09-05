@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.1]
+
+### Fixed
+
+- Support `async` down to 2.32 (the gemspec minimum):
+  `Promise#wait(timeout:)` only exists on newer releases, so timed
+  waits now fall back to `with_timeout` around a blocking wait.
+- Faster connection close: stop the listen task before joining it
+  (it never exits on its own while the peer is alive). Full suite
+  went from ~35s down to ~6s.
+
+### Compatibility
+
+- Verified: full suite (189 tests) green on Ruby 3.2, 3.3, 3.4 and 4.0,
+  with `async` 2.32, 2.36, 2.37, 2.38 and 2.45.
+
 ## [0.3.0]
 
 ### Added
