@@ -374,7 +374,10 @@ module ACP
       listener = @listen_worker
       return if listener.nil? || Wait.current?(listener)
 
-      Wait.stop(listener) unless Wait.join(listener, @worker_grace)
+      # Stop first, then join: the listener never finishes on its own while
+      # the peer is alive, so joining first would always burn the full grace.
+      Wait.stop(listener)
+      Wait.join(listener, @worker_grace)
     end
   end
 end

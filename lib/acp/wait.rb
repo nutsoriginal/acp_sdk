@@ -3,6 +3,7 @@
 require "async"
 require "async/promise"
 require "logger"
+require "timeout"
 require_relative "exceptions"
 
 module ACP
@@ -102,6 +103,21 @@ module ACP
       worker.finished? || !alive?(worker)
     end
 
+    # Promise#wait(timeout:) only exists on newer async releases.
+    # Older ones get the same semantics via with_timeout around a
+    # blocking wait; outside a reactor fall back to stdlib Timeout.
+    def self.wait_promise(promise, timeout)
+      return promise.wait if timeout.nil?
+
+      if promise.method(:wait).parameters.any? { |type, _| %i[key keyrest].include?(type) }
+        promise.wait(timeout: timeout)
+      elsif async?
+        ::Async::Task.current.with_timeout(timeout) { promise.wait }
+      else
+        ::Timeout.timeout(timeout) { promise.wait }
+      end
+    end
+
     class Latch
       def initialize
         @promise = ::Async::Promise.new
@@ -116,13 +132,9 @@ module ACP
       end
 
       def wait(timeout = nil)
-        if timeout.nil?
-          @promise.wait
-        else
-          @promise.wait(timeout: timeout)
-        end
+        Wait.wait_promise(@promise, timeout)
         true
-      rescue ::Async::TimeoutError
+      rescue ::Async::TimeoutError, ::Timeout::Error
         false
       end
     end
@@ -148,12 +160,8 @@ module ACP
       end
 
       def wait(timeout = nil)
-        if timeout.nil?
-          @promise.wait
-        else
-          @promise.wait(timeout: timeout)
-        end
-      rescue ::Async::TimeoutError
+        Wait.wait_promise(@promise, timeout)
+      rescue ::Async::TimeoutError, ::Timeout::Error
         raise TimeoutError, "Timed out after #{timeout}s"
       end
     end
