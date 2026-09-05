@@ -24,7 +24,10 @@ module ACP
         raise RequestError.method_not_found(@method)
       end
 
-      argument = @model ? @model.coerce(params.nil? ? {} : params) : params
+      # Do NOT coerce nil -> {}: missing params must fail validation
+      # (invalid_params) instead of being silently replaced.
+      # Extension routes handle nil themselves (nil -> {} for wire compat).
+      argument = @model ? @model.coerce(params) : params
       result = @handler.call(argument)
       return result unless @kind == :request && @adapt_result
 
@@ -54,25 +57,25 @@ module ACP
     def route_request(method, model, target, *names, optional: false, default_result: nil, normalize: false)
       handler = resolve_handler(target, names)
       add_route(Route.new(
-        method: method,
-        handler: handler,
-        kind: :request,
-        model: model,
-        optional: optional,
-        default_result: default_result,
-        adapt_result: normalize ? NORMALIZE_RESULT : nil
-      ))
+                  method: method,
+                  handler: handler,
+                  kind: :request,
+                  model: model,
+                  optional: optional,
+                  default_result: default_result,
+                  adapt_result: normalize ? NORMALIZE_RESULT : nil
+                ))
     end
 
     def route_notification(method, model, target, *names)
       handler = resolve_handler(target, names)
       add_route(Route.new(
-        method: method,
-        handler: handler,
-        kind: :notification,
-        model: model,
-        optional: true
-      ))
+                  method: method,
+                  handler: handler,
+                  kind: :notification,
+                  model: model,
+                  optional: true
+                ))
     end
 
     def on_extension_request(&block)

@@ -15,4 +15,11 @@ task :gen_schema do
   puts "Generated #{ACP::SchemaGenerator::OUT_SCHEMA} and #{ACP::SchemaGenerator::OUT_META}"
 end
 
+begin
+  require "rubocop/rake_task"
+  RuboCop::RakeTask.new
+rescue LoadError
+  # RuboCop is optional for local runs; CI installs it via the Gemfile.
+end
+
 task default: :test

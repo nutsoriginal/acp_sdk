@@ -4,6 +4,8 @@ Ruby SDK for the [Agent Client Protocol](https://agentclientprotocol.com) (ACP):
 
 Requires Ruby 3.2+ and runs on [`async`](https://github.com/socketry/async), the same cooperative scheduler used by Falcon. The public API is blocking (`client.prompt(...)`) like a normal Ruby method; inside a reactor those calls yield to other tasks instead of occupying a thread.
 
+Inspired by the [official Python ACP SDK](https://github.com/agentclientprotocol/python-sdk).
+
 ## Installation
 
 ```ruby

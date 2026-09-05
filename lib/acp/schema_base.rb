@@ -19,7 +19,7 @@ module ACP
     end
 
     def self.to_snake(camel)
-      camel.to_s.gsub(/([A-Z])/) { "_#{$1.downcase}" }.sub(/\A_/, "")
+      camel.to_s.gsub(/([A-Z])/) { "_#{::Regexp.last_match(1).downcase}" }.sub(/\A_/, "")
     end
 
     def self.serialize(value)
@@ -75,7 +75,7 @@ module ACP
 
             fail!(value, path)
           when :boolean
-            return value if value == true || value == false
+            return value if [true, false].include?(value)
 
             fail!(value, path)
           when :object
@@ -141,11 +141,9 @@ module ACP
 
           result = []
           value.each_with_index do |element, index|
-            begin
-              result << @item.coerce(element, path + [index])
-            rescue ValidationError
-              raise unless @skip_invalid
-            end
+            result << @item.coerce(element, path + [index])
+          rescue ValidationError
+            raise unless @skip_invalid
           end
           result
         end
@@ -204,9 +202,7 @@ module ACP
           if @tag && value.is_a?(Hash)
             tag_value = read_tag(value)
             candidates = @tagged[tag_value] if tag_value
-            if candidates && !candidates.empty?
-              return try_variants(candidates, value, path) { |error| raise error }
-            end
+            return try_variants(candidates, value, path) { |error| raise error } if candidates && !candidates.empty?
           end
 
           try_variants(@untagged, value, path) do
@@ -254,6 +250,17 @@ module ACP
         keyword_init: true
       )
 
+      # Catch-all Other* variants must reject values reserved by known
+      # variants, otherwise unions would accept malformed payloads
+      # (e.g. action=accept in Other).
+      RESERVED_TAGS = {
+        "CreateOtherSessionElicitationRequest" => ["mode", %w[form url].freeze],
+        "CreateOtherRequestElicitationRequest" => ["mode", %w[form url].freeze],
+        "OtherElicitationResponse" => ["action", %w[accept cancel decline].freeze],
+        "ElicitationOtherPropertySchema" => ["type", %w[array boolean integer number string].freeze],
+        "OtherMultiSelectItems" => ["type", %w[string].freeze]
+      }.freeze
+
       class << self
         def fields
           @fields ||= superclass.respond_to?(:fields) ? superclass.fields.dup : []
@@ -276,6 +283,7 @@ module ACP
             default_on_error: default_on_error
           )
           attr_reader name
+
           define_method(:"#{name}=") do |value|
             instance_variable_set(:"@#{name}", value)
             @set_fields << name
@@ -288,6 +296,7 @@ module ACP
 
           instance = allocate
           instance.send(:load_from_hash, value, path)
+          instance.send(:check_reserved_tags!, path)
           instance
         end
 
@@ -300,7 +309,7 @@ module ACP
         alias parse coerce
       end
 
-      attr_reader :field_meta
+      attr_accessor :field_meta
 
       def initialize(**kwargs)
         @set_fields = []
@@ -311,18 +320,36 @@ module ACP
         self.class.fields.each do |f|
           if kwargs.key?(f.name)
             value = kwargs[f.name]
-            value = f.type.coerce(value, [f.key]) unless value.nil?
-            assign(f, value, set: !value.nil?)
+            if value.nil?
+              if f.const
+                assign(f, f.const, set: true)
+              elsif f.required && !f.default_on_error
+                raise ValidationError.new("missing required field #{f.key}", [f.key])
+              else
+                assign(f, default_for(f), set: false)
+              end
+            else
+              begin
+                coerced = f.type.coerce(value, [f.key])
+              rescue ValidationError
+                raise unless f.default_on_error
+
+                assign(f, default_for(f), set: false)
+                next
+              end
+              raise ValidationError.new("expected #{f.const.inspect}, got #{coerced.inspect}", [f.key]) if f.const && coerced != f.const
+
+              assign(f, coerced, set: true)
+            end
           elsif f.const
             assign(f, f.const, set: true)
+          elsif f.required
+            raise ValidationError.new("missing required field #{f.key}", [f.key])
           else
             assign(f, default_for(f), set: false)
           end
         end
-      end
-
-      def field_meta=(value)
-        @field_meta = value
+        check_reserved_tags!
       end
 
       def set?(name)
@@ -418,9 +445,7 @@ module ACP
 
       def load_present(field, raw, path)
         value = field.type.coerce(raw, path + [field.key])
-        if field.const && value != field.const
-          raise ValidationError.new("expected #{field.const.inspect}, got #{value.inspect}", path + [field.key])
-        end
+        raise ValidationError.new("expected #{field.const.inspect}, got #{value.inspect}", path + [field.key]) if field.const && value != field.const
 
         assign(field, value, set: true)
       rescue ValidationError
@@ -434,6 +459,25 @@ module ACP
           return [true, hash[candidate]] if hash.key?(candidate)
         end
         [false, nil]
+      end
+
+      def check_reserved_tags!(path = [])
+        rule = RESERVED_TAGS[self.class.name.split("::").last]
+        return unless rule
+
+        wire_field, reserved = rule
+        field = self.class.fields.find { |f| f.key == wire_field || f.name.to_s == wire_field }
+        return unless field
+
+        value = instance_variable_get(:"@#{field.name}")
+        return if value.nil?
+
+        return unless reserved.include?(value)
+
+        raise ValidationError.new(
+          "#{wire_field} value is reserved by a known variant",
+          path + [field.key]
+        )
       end
     end
   end

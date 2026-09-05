@@ -68,7 +68,7 @@ module ACP
           line = line.scrub unless line.valid_encoding?
           ACP.logger.info("acp[#{label}] stderr: #{line.chomp}")
         end
-      rescue IOError, Errno::EBADF, ::Async::Cancel
+      rescue IOError, Errno::EBADF, Wait::TASK_STOPPED
         nil
       ensure
         io.close unless io.closed?

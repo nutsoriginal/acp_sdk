@@ -18,7 +18,7 @@ Gem::Specification.new do |spec|
   spec.metadata["bug_tracker_uri"] = "#{spec.homepage}/issues"
   spec.metadata["documentation_uri"] = "https://agentclientprotocol.com"
 
-  spec.files = Dir["lib/**/*.rb", "schema/*", "README.md", "LICENSE"]
+  spec.files = Dir["lib/**/*.rb", "schema/*", "README.md", "CHANGELOG.md", "LICENSE"]
   spec.require_paths = ["lib"]
 
   spec.add_dependency "async", "~> 2.32"

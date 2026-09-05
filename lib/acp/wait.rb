@@ -15,6 +15,18 @@ module ACP
   end
 
   module Wait
+    # Task cancellation exception renamed across async 2.x:
+    # older releases raise Async::Stop, newer raise Async::Cancel
+    # (with Stop kept as an alias). Pick whichever exists.
+    TASK_STOPPED =
+      if defined?(::Async::Cancel)
+        ::Async::Cancel
+      elsif defined?(::Async::Stop)
+        ::Async::Stop
+      else
+        StandardError
+      end
+
     def self.async?
       !::Async::Task.current?.nil?
     rescue RuntimeError
@@ -51,8 +63,12 @@ module ACP
     def self.stop(worker)
       return if worker.nil? || worker.finished?
 
-      worker.stop
-    rescue ::Async::Cancel, StandardError
+      if worker.respond_to?(:stop)
+        worker.stop
+      else
+        worker.cancel
+      end
+    rescue TASK_STOPPED, StandardError
       nil
     end
 
@@ -61,11 +77,24 @@ module ACP
 
       if timeout.nil?
         worker.wait
+      elsif async?
+        # Task#wait(timeout:) only exists on newer async; with_timeout
+        # around a blocking wait works on every 2.x.
+        begin
+          ::Async::Task.current.with_timeout(timeout) { worker.wait }
+        rescue ::Async::TimeoutError
+          return false
+        end
       else
-        worker.wait(timeout: timeout)
+        require "timeout" unless defined?(::Timeout)
+        begin
+          ::Timeout.timeout(timeout) { worker.wait }
+        rescue ::Timeout::Error
+          return false
+        end
       end
       true
-    rescue ::Async::Cancel
+    rescue TASK_STOPPED
       true
     rescue ::Async::TimeoutError, TimeoutError
       false
@@ -103,8 +132,11 @@ module ACP
         @promise = ::Async::Promise.new
       end
 
+      # Async::Promise#resolved? is true after either resolve or reject
+      # (completed? is only true for successful resolution), so it is the
+      # correct settled check. Fall back to failed?/completed? for safety.
       def settled?
-        @promise.resolved?
+        @promise.resolved? || @promise.failed? || @promise.completed?
       end
 
       def resolve(value)

@@ -152,7 +152,7 @@ module ACP
       end
 
       def set_session_config_option(session_id:, config_id:, value:, **meta)
-        request_class = if value == true || value == false
+        request_class = if [true, false].include?(value)
                           Schema::SetSessionConfigOptionBooleanRequest
                         else
                           Schema::SetSessionConfigOptionSelectRequest
@@ -162,6 +162,9 @@ module ACP
           session_id: session_id, config_id: config_id, value: value, **meta
         )
       end
+
+      # Short alias for the same wire method (session/set_config_option).
+      alias set_config_option set_session_config_option
 
       def prompt(session_id:, prompt:, **meta)
         request(AGENT_METHODS["session_prompt"], Schema::PromptRequest, Schema::PromptResponse,

@@ -160,10 +160,24 @@ module ACP::SchemaGenerator
       parts = [":#{field.name}", field.type_expr]
       parts << "key: #{field.key.inspect}" if camel(field.name) != field.key
       parts << "required: true" if field.required && field.const.nil?
-      parts << "default: #{field.default.inspect}" unless field.default.nil?
-      parts << "const: #{field.const.inspect}" unless field.const.nil?
+      parts << "default: #{ruby_literal(field.default)}" unless field.default.nil?
+      parts << "const: #{ruby_literal(field.const)}" unless field.const.nil?
       parts << "default_on_error: true" if field.default_on_error
       "field #{parts.join(', ')}"
+    end
+
+    # Hash#inspect spacing changed in Ruby 3.4 ({"a"=>1} became {"a" => 1}),
+    # so render default/const literals manually to keep the generated files
+    # identical on every supported Ruby.
+    def ruby_literal(value)
+      case value
+      when Hash
+        "{#{value.map { |key, item| "#{ruby_literal(key)} => #{ruby_literal(item)}" }.join(', ')}}"
+      when Array
+        "[#{value.map { |item| ruby_literal(item) }.join(', ')}]"
+      else
+        value.inspect
+      end
     end
 
     def emit_def(name, definition)
@@ -191,13 +205,13 @@ module ACP::SchemaGenerator
       elsif kinds.all? { |k| %i[scalar enum_open].include?(k) }
         exprs = variants.map { |v| type_expr(v) }.uniq
         exprs.reject! { |e| e == ":any" } if exprs.size > 1
-        if exprs.size == 1 && !exprs.first.start_with?("Types::List")
-          @constants << "#{ruby_name(name)} = #{scalar_constant(exprs.first)}"
-        elsif exprs.all? { |e| e.start_with?("Types::List") }
-          @constants << "#{ruby_name(name)} = Types::Union.new(untagged: [#{exprs.join(', ')}])"
-        else
-          @constants << "#{ruby_name(name)} = Types::ANY"
-        end
+        @constants << if exprs.size == 1 && !exprs.first.start_with?("Types::List")
+                        "#{ruby_name(name)} = #{scalar_constant(exprs.first)}"
+                      elsif exprs.all? { |e| e.start_with?("Types::List") }
+                        "#{ruby_name(name)} = Types::Union.new(untagged: [#{exprs.join(', ')}])"
+                      else
+                        "#{ruby_name(name)} = Types::ANY"
+                      end
       else
         shapes = shapes_for_def(name)
         shapes.each { |shape| emit_shape(shape) }
@@ -343,9 +357,7 @@ module ACP::SchemaGenerator
         end
       end
 
-      if components.empty?
-        return [Shape.new(fields: own_fields, own_fields: own_fields, tag_key: tag&.key, tag_value: tag&.const, path: path)]
-      end
+      return [Shape.new(fields: own_fields, own_fields: own_fields, tag_key: tag&.key, tag_value: tag&.const, path: path)] if components.empty?
 
       product(components).map do |combo|
         shapes = combo.map(&:first)

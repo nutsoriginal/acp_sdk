@@ -84,11 +84,23 @@ module ACP
     private
 
     def read_line
-      if @receive_timeout && @input.respond_to?(:wait_readable) && !@input.wait_readable(@receive_timeout)
-        raise TimeoutError, "No message received within #{@receive_timeout}s"
-      end
+      return @input.gets unless @receive_timeout
 
-      @input.gets
+      if Wait.async?
+        begin
+          ::Async::Task.current.with_timeout(@receive_timeout) { @input.gets }
+        rescue ::Async::TimeoutError
+          raise TimeoutError, "No message received within #{@receive_timeout}s"
+        end
+      elsif @input.respond_to?(:wait_readable)
+        raise TimeoutError, "No message received within #{@receive_timeout}s" unless @input.wait_readable(@receive_timeout)
+
+        @input.gets
+      else
+        raise TimeoutError, "No message received within #{@receive_timeout}s" unless IO.select([@input], nil, nil, @receive_timeout)
+
+        @input.gets
+      end
     end
   end
 
@@ -104,31 +116,48 @@ module ACP
     def initialize(inbox, outbox)
       @inbox = inbox
       @outbox = outbox
+      @mutex = Mutex.new
       @closed = false
     end
 
     def closed?
-      @closed
+      @mutex.synchronize { @closed }
     end
 
     def send_message(message)
-      raise ConnectionError, "Transport is closed" if @closed
+      raise ConnectionError, "Transport is closed" if closed?
 
+      # JSON round-trip simulates the wire: isolates mutation between peers
+      # and normalizes symbol keys to strings, like NDJSON framing does.
       @outbox.push(JSON.parse(JSON.generate(message)))
+    rescue ::Async::Queue::ClosedError
+      raise ConnectionError, "Transport is closed"
     end
 
     def receive_message
-      return nil if @closed && @inbox.empty?
+      return nil if closed? && @inbox.empty?
 
       @inbox.pop
     end
 
     def close
-      return if @closed
+      should_signal = @mutex.synchronize do
+        next false if @closed
 
-      @closed = true
-      @outbox.push(nil)
-      @inbox.push(nil)
+        @closed = true
+        true
+      end
+      return unless should_signal
+
+      # Signal EOF to the peer only. The local receive loop unblocks via
+      # task cancellation (Connection#stop_workers) or via the closed?+empty?
+      # fast path in receive_message above. Pushing nil to our own inbox
+      # would discard ordering guarantees, so we deliberately avoid it.
+      begin
+        @outbox.push(nil)
+      rescue ::Async::Queue::ClosedError
+        nil
+      end
     end
   end
 end

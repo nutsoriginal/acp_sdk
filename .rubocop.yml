@@ -1,0 +1,36 @@
+# frozen_string_literal: true
+
+AllCops:
+  NewCops: disable
+  SuggestExtensions: false
+  TargetRubyVersion: 3.2
+  Exclude:
+    - "lib/acp/schema.rb"
+    - "lib/acp/meta.rb"
+    - "vendor/**/*"
+    - "coverage/**/*"
+
+Style/StringLiterals:
+  EnforcedStyle: double_quotes
+
+Style/Documentation:
+  Enabled: false
+
+Style/NumericLiterals:
+  Enabled: false
+
+Naming/AccessorMethodName:
+  Enabled: false
+
+Style/ClassAndModuleChildren:
+  Exclude:
+    - "scripts/**/*"
+
+Style/FrozenStringLiteralComment:
+  Enabled: true
+
+Layout/LineLength:
+  Max: 160
+
+Metrics:
+  Enabled: false

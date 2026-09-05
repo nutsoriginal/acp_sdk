@@ -108,7 +108,7 @@ module ACP
       end
 
       def write_text_file(session_id:, path:, content:, **meta)
-        request(
+        request_optional(
           CLIENT_METHODS["fs_write_text_file"], Schema::WriteTextFileRequest, Schema::WriteTextFileResponse,
           session_id: session_id, path: path, content: content, **meta
         )
@@ -130,7 +130,7 @@ module ACP
       end
 
       def release_terminal(session_id:, terminal_id:, **meta)
-        request(
+        request_optional(
           CLIENT_METHODS["terminal_release"], Schema::ReleaseTerminalRequest, Schema::ReleaseTerminalResponse,
           session_id: session_id, terminal_id: terminal_id, **meta
         )
@@ -145,14 +145,25 @@ module ACP
       end
 
       def kill_terminal(session_id:, terminal_id:, **meta)
-        request(
+        request_optional(
           CLIENT_METHODS["terminal_kill"], Schema::KillTerminalRequest, Schema::KillTerminalResponse,
           session_id: session_id, terminal_id: terminal_id, **meta
         )
       end
 
-      def create_elicitation(request)
-        payload = Schema::CreateElicitationRequest.coerce(request)
+      # Accepts either a full request model/hash or message:+mode: kwargs.
+      # Mode is one of ElicitationFormSessionMode / ElicitationFormRequestMode /
+      # ElicitationUrlSessionMode / ElicitationUrlRequestMode.
+      def create_elicitation(request = nil, message: nil, mode: nil, **meta)
+        payload =
+          if !message.nil? || !mode.nil?
+            raise ArgumentError, "message: and mode: are both required" if message.nil? || mode.nil?
+            raise ArgumentError, "request must not be given with message:/mode:" unless request.nil?
+
+            build_elicitation_request(message, mode, meta)
+          else
+            Schema::CreateElicitationRequest.coerce(request)
+          end
         result = @conn.send_request(CLIENT_METHODS["elicitation_create"], payload)
         Schema::CreateElicitationResponse.coerce(result || {})
       end
@@ -178,6 +189,16 @@ module ACP
         response_class.coerce(result || {})
       end
 
+      # Optional responses: null / non-dict responses become nil
+      # instead of an empty model.
+      def request_optional(method, request_class, response_class, **kwargs)
+        payload = build(request_class, kwargs)
+        result = @conn.send_request(method, payload)
+        return nil unless result.is_a?(Hash)
+
+        response_class.coerce(result)
+      end
+
       def notify(method, request_class, **kwargs)
         @conn.send_notification(method, build(request_class, kwargs))
       end
@@ -187,6 +208,27 @@ module ACP
         model = request_class.new(**kwargs.compact)
         model.field_meta = meta if meta
         model
+      end
+
+      def build_elicitation_request(message, mode, meta)
+        mode_hash = mode.is_a?(Schema::Base) ? mode.to_h : Schema.serialize(mode)
+        mode_hash = mode_hash.transform_keys(&:to_s)
+        field_meta = meta.delete(:field_meta) || meta.delete(:meta)
+        # The mode models carry no "mode" discriminator (it lives on the
+        # request), so infer it from the mode class.
+        discriminator =
+          case mode
+          when Schema::ElicitationFormSessionMode, Schema::ElicitationFormRequestMode then "form"
+          when Schema::ElicitationUrlSessionMode, Schema::ElicitationUrlRequestMode then "url"
+          else mode_hash["mode"]
+          end
+        # Merge message + mode fields; the CreateElicitationRequest union
+        # dispatches to the correct form/url variant.
+        hash = { "message" => message }.merge(mode_hash).merge(meta.compact.transform_keys(&:to_s))
+        hash["mode"] = discriminator if discriminator
+        request = Schema::CreateElicitationRequest.coerce(hash)
+        request.field_meta = field_meta if field_meta
+        request
       end
     end
 

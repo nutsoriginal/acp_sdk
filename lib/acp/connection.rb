@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require "json"
-require "set"
 require "async/queue"
 require_relative "exceptions"
 require_relative "schema_base"
@@ -34,7 +33,7 @@ module ACP
     end
 
     def closed?
-      @closed
+      @mutex.synchronize { @closed }
     end
 
     def add_observer(callable = nil, &block)
@@ -74,11 +73,15 @@ module ACP
     end
 
     def send_request(method, params = nil, timeout: nil)
-      raise ConnectionError, "Connection closed" if @closed
-
-      request_id = next_id
+      request_id = nil
       promise = Wait::Promise.new
-      @mutex.synchronize { @pending[request_id] = promise }
+      @mutex.synchronize do
+        raise ConnectionError, "Connection closed" if @closed
+
+        request_id = @next_id
+        @next_id += 1
+        @pending[request_id] = promise
+      end
 
       payload = { "jsonrpc" => "2.0", "id" => request_id, "method" => method }
       payload["params"] = serialize(params) unless params.nil?
@@ -99,7 +102,7 @@ module ACP
     end
 
     def send_notification(method, params = nil)
-      raise ConnectionError, "Connection closed" if @closed
+      @mutex.synchronize { raise ConnectionError, "Connection closed" if @closed }
 
       payload = { "jsonrpc" => "2.0", "method" => method }
       payload["params"] = serialize(params) unless params.nil?
@@ -110,14 +113,23 @@ module ACP
       return true unless Wait.alive?(@notification_worker)
 
       latch = Wait::Latch.new
-      @notification_queue.push(latch)
+      begin
+        @notification_queue.push(latch)
+      rescue ::Async::Queue::ClosedError
+        return false
+      end
       latch.wait(timeout)
     end
 
     def close
-      return if @closed
+      already_closed = @mutex.synchronize do
+        next true if @closed
 
-      @closed = true
+        @closed = true
+        false
+      end
+      return if already_closed
+
       reject_all(ConnectionError.new("Connection closed"))
       begin
         @transport.close
@@ -143,13 +155,15 @@ module ACP
     end
 
     def write(payload)
-      notify_observers(:outgoing, payload)
+      # Notify AFTER successful send: notifying before would expose observers
+      # to messages that never hit the wire and let them mutate the payload.
       @transport.send_message(payload)
+      notify_observers(:outgoing, payload)
     end
 
     def receive_loop
       loop do
-        break if @closed
+        break if closed?
 
         message = begin
           @transport.receive_message
@@ -159,7 +173,7 @@ module ACP
         rescue ConnectionError => e
           ACP.logger.debug("acp: receive failed: #{e.message}")
           break
-        rescue ::Async::Cancel
+        rescue Wait::TASK_STOPPED
           break
         end
         break if message.nil?
@@ -210,7 +224,7 @@ module ACP
         payload["error"] = RequestError.invalid_params(
           "errors" => [{ "message" => e.message, "loc" => e.path }]
         ).to_error_obj
-      rescue ::Async::Cancel
+      rescue Wait::TASK_STOPPED
         return
       rescue StandardError => e
         ACP.logger.error("acp: handler for #{message['method']} failed: #{e.class}: #{e.message}")
@@ -219,19 +233,19 @@ module ACP
       write(payload)
     rescue ConnectionError => e
       ACP.logger.debug("acp: could not send response for #{message['method']}: #{e.message}")
-    rescue ::Async::Cancel
+    rescue Wait::TASK_STOPPED
       nil
     end
 
     def respond_error(id, error)
       write({ "jsonrpc" => "2.0", "id" => id, "error" => error.to_error_obj })
-    rescue ConnectionError, ::Async::Cancel
+    rescue ConnectionError, Wait::TASK_STOPPED
       nil
     end
 
     def run_notification(message)
       @handler.call(message["method"], message["params"], true)
-    rescue ::Async::Cancel
+    rescue Wait::TASK_STOPPED
       nil
     rescue StandardError => e
       ACP.logger.error("acp: notification handler for #{message['method']} failed: #{e.class}: #{e.message}")
@@ -243,12 +257,18 @@ module ACP
         ACP.logger.debug("acp: response for unknown request id #{message['id'].inspect}")
         return
       end
+      return if promise.settled?
 
-      if message.key?("error")
+      # JSON-RPC result and error are mutually exclusive; when both are present
+      # prefer result.
+      if message.key?("result")
+        promise.resolve(message["result"])
+      elsif message.key?("error")
         error = message["error"] || {}
+        error = {} unless error.is_a?(Hash)
         promise.reject(RequestError.new(error["code"] || -32603, error["message"] || "Error", error["data"]))
       else
-        promise.resolve(message["result"])
+        promise.resolve(nil)
       end
     end
 
@@ -258,14 +278,30 @@ module ACP
         @pending.clear
         items
       end
-      pending.each { |promise| promise.reject(error) }
+      pending.each do |promise|
+        promise.reject(error) unless promise.settled?
+      rescue StandardError
+        nil
+      end
+    end
+
+    def deep_copy_message(message)
+      JSON.parse(JSON.generate(message))
+    rescue StandardError
+      begin
+        Marshal.load(Marshal.dump(message))
+      rescue StandardError
+        message.is_a?(Hash) ? message.dup : message
+      end
     end
 
     def notify_observers(direction, message)
       observers = @mutex.synchronize { @observers.dup }
       return if observers.empty?
 
-      event = StreamEvent.new(direction: direction, message: message)
+      # Deep-copy once so observers cannot mutate the wire payload.
+      snapshot = deep_copy_message(message)
+      event = StreamEvent.new(direction: direction, message: snapshot)
       observers.each do |observer|
         observer.call(event)
       rescue StandardError => e
@@ -297,7 +333,7 @@ module ACP
 
       begin
         @notification_queue.push(nil)
-      rescue ::Async::Queue::ClosedError, ClosedQueueError
+      rescue ::Async::Queue::ClosedError
         nil
       end
       return if Wait.current?(worker)
@@ -306,6 +342,8 @@ module ACP
     end
 
     def spawn_worker(name, &block)
+      return nil if closed?
+
       Wait.spawn(name) do
         me = Wait.current_worker
         @mutex.synchronize { @workers << me }
@@ -327,11 +365,12 @@ module ACP
         @workers.clear
         list
       end
-      workers.each do |worker|
-        next if Wait.current?(worker)
-
-        Wait.stop(worker) unless Wait.join(worker, @worker_grace)
-      end
+      # Stop all first, then join: parallel shutdown instead of N * grace.
+      # rubocop:disable Style/CombinableLoops -- merging the loops would serialize stop+join per worker
+      pending = workers.reject { |worker| Wait.current?(worker) }
+      pending.each { |worker| Wait.stop(worker) }
+      pending.each { |worker| Wait.join(worker, @worker_grace) }
+      # rubocop:enable Style/CombinableLoops
       listener = @listen_worker
       return if listener.nil? || Wait.current?(listener)
 

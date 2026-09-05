@@ -30,10 +30,10 @@ class AcpRouterTest < Minitest::Test
   def test_route_dispatch_with_raw_handler
     router = ACP::Router.new
     router.add_route(ACP::Route.new(
-      method: "echo",
-      handler: ->(params) { { "text" => params["text"] } },
-      kind: :request
-    ))
+                       method: "echo",
+                       handler: ->(params) { { "text" => params["text"] } },
+                       kind: :request
+                     ))
 
     result = router.call("echo", { "text" => "hi" }, false)
     assert_equal "hi", result["text"]

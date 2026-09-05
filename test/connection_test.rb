@@ -174,7 +174,10 @@ class AcpConnectionTest < Minitest::Test
   end
 
   def test_send_request_has_no_default_timeout_but_honours_explicit_one
-    handler = ->(*) { sleep 0.3; {} }
+    handler = lambda { |*|
+      sleep 0.3
+      {}
+    }
     _server, client = connect(handler)
 
     error = assert_raises(ACP::TimeoutError) { client.send_request("slow", {}, timeout: 0.05) }
@@ -183,7 +186,10 @@ class AcpConnectionTest < Minitest::Test
   end
 
   def test_pending_requests_fail_when_peer_disconnects
-    handler = ->(*) { sleep 5; {} }
+    handler = lambda { |*|
+      sleep 5
+      {}
+    }
     server, client = connect(handler)
 
     waiter = Async do
@@ -198,7 +204,10 @@ class AcpConnectionTest < Minitest::Test
   end
 
   def test_pending_requests_fail_on_local_close
-    handler = ->(*) { sleep 5; {} }
+    handler = lambda { |*|
+      sleep 5
+      {}
+    }
     _server, client = connect(handler)
 
     waiter = Async do
@@ -233,7 +242,10 @@ class AcpConnectionTest < Minitest::Test
   end
 
   def test_in_flight_handlers_are_cancelled_after_grace_period
-    handler = ->(*) { sleep 5; {} }
+    handler = lambda { |*|
+      sleep 5
+      {}
+    }
     server, _client = connect(handler, worker_grace: 0.05)
 
     @left.send_message({ "jsonrpc" => "2.0", "id" => 1, "method" => "slow" })
