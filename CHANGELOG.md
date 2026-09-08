@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- `examples/duet.rb`: runnable in-process agent↔client demo over
+  in-memory transports (covered by `test/examples_test.rb`).
+- Windows inherited-env allowlist for spawned agents
+  (`APPDATA`, `PATHEXT`, …); process management itself stays POSIX-only.
+
+### Fixed
+
+- `NdjsonTransport` caps inbound lines at 50MB by default
+  (`max_line_bytes:`): over-long lines are skipped instead of
+  ballooning memory. Lines are reassembled in 64KB chunks.
+
 ## [0.3.1]
 
 ### Fixed

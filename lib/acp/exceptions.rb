@@ -29,4 +29,8 @@ module ACP
   class ConnectionError < Error; end
 
   class TimeoutError < Error; end
+
+  # Raised when a single NDJSON line exceeds the transport's cap.
+  # Never escapes NdjsonTransport: receive_message skips the line.
+  class LineTooLongError < Error; end
 end

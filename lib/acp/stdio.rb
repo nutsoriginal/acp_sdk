@@ -7,10 +7,15 @@ require_relative "wait"
 module ACP
   module Stdio
     DEFAULT_INHERITED_ENV = %w[HOME LOGNAME PATH SHELL TERM USER].freeze
+    WINDOWS_INHERITED_ENV = %w[
+      APPDATA HOMEDRIVE HOMEPATH LOCALAPPDATA PATH PATHEXT
+      PROCESSOR_ARCHITECTURE SYSTEMDRIVE SYSTEMROOT TEMP USERNAME USERPROFILE
+    ].freeze
 
     def self.default_environment
+      keys = Gem.win_platform? ? WINDOWS_INHERITED_ENV : DEFAULT_INHERITED_ENV
       env = {}
-      DEFAULT_INHERITED_ENV.each do |key|
+      keys.each do |key|
         value = ENV.fetch(key, nil)
         next if value.nil? || value.start_with?("()")
 

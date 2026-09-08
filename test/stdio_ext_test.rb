@@ -39,6 +39,14 @@ class AcpStdioExtTest < Minitest::Test
     had_key ? ENV[key] = old : ENV.delete(key)
   end
 
+  def with_windows_platform
+    original = Gem.method(:win_platform?)
+    Gem.define_singleton_method(:win_platform?) { true }
+    yield
+  ensure
+    Gem.define_singleton_method(:win_platform?, original)
+  end
+
   # --- default_environment ---
 
   def test_default_environment_filters_shell_functions
@@ -52,6 +60,20 @@ class AcpStdioExtTest < Minitest::Test
     end
     with_env("ACP_TEST_PLAIN", "hello") do
       refute ACP::Stdio.default_environment.key?("ACP_TEST_PLAIN")
+    end
+  end
+
+  def test_default_environment_windows_keys
+    with_windows_platform do
+      with_env("PATHEXT", ".EXE") do
+        assert_equal ".EXE", ACP::Stdio.default_environment["PATHEXT"]
+      end
+      with_env("PATHEXT", "() { echo hi; }") do
+        refute ACP::Stdio.default_environment.key?("PATHEXT")
+      end
+      with_env("HOME", "/home/u") do
+        refute ACP::Stdio.default_environment.key?("HOME")
+      end
     end
   end
 

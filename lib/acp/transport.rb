@@ -26,12 +26,20 @@ module ACP
   class NdjsonTransport
     include Transport
 
+    # Parity with the reference 50MB stdio buffer: inbound lines are
+    # reassembled in bounded chunks and a line beyond the cap is skipped,
+    # so a rogue peer cannot exhaust memory via stdout. (The reference
+    # accepts such lines; we deliberately reject them instead.)
+    DEFAULT_MAX_LINE_BYTES = 50 * 1024 * 1024
+    READ_CHUNK_BYTES = 64 * 1024
+
     attr_reader :input, :output
 
-    def initialize(input, output, receive_timeout: nil)
+    def initialize(input, output, receive_timeout: nil, max_line_bytes: DEFAULT_MAX_LINE_BYTES)
       @input = input
       @output = output
       @receive_timeout = receive_timeout
+      @max_line_bytes = max_line_bytes
       @write_mutex = Mutex.new
       @closed = false
       @output.sync = true if @output.respond_to?(:sync=)
@@ -55,7 +63,12 @@ module ACP
 
     def receive_message
       loop do
-        line = read_line
+        begin
+          line = read_line
+        rescue LineTooLongError => e
+          ACP.logger.warn("acp: skipping over-long line: #{e.message}")
+          next
+        end
         return nil if line.nil?
 
         line = line.scrub unless line.valid_encoding?
@@ -84,22 +97,54 @@ module ACP
     private
 
     def read_line
-      return @input.gets unless @receive_timeout
+      return read_line_chunks unless @receive_timeout
 
       if Wait.async?
         begin
-          ::Async::Task.current.with_timeout(@receive_timeout) { @input.gets }
+          ::Async::Task.current.with_timeout(@receive_timeout) { read_line_chunks }
         rescue ::Async::TimeoutError
           raise TimeoutError, "No message received within #{@receive_timeout}s"
         end
       elsif @input.respond_to?(:wait_readable)
         raise TimeoutError, "No message received within #{@receive_timeout}s" unless @input.wait_readable(@receive_timeout)
 
-        @input.gets
+        read_line_chunks
       else
         raise TimeoutError, "No message received within #{@receive_timeout}s" unless IO.select([@input], nil, nil, @receive_timeout)
 
-        @input.gets
+        read_line_chunks
+      end
+    end
+
+    # Reads one "\n"-terminated line in bounded chunks so a giant line never
+    # sits in memory twice. Returns nil on EOF (or the trailing partial line,
+    # like a short read). Raises LineTooLongError after discarding the rest
+    # of an over-long line to keep framing in sync.
+    def read_line_chunks
+      buffer = nil
+      loop do
+        chunk = @input.gets("\n", READ_CHUNK_BYTES)
+        if chunk.nil?
+          return nil if buffer.nil? || buffer.empty?
+
+          return buffer
+        end
+        buffer = chunk.dup.clear if buffer.nil?
+        buffer << chunk
+        if buffer.bytesize > @max_line_bytes
+          discard_line_rest(chunk)
+          raise LineTooLongError, "line exceeds #{@max_line_bytes} bytes"
+        end
+        return buffer if chunk.end_with?("\n")
+      end
+    end
+
+    def discard_line_rest(last_chunk)
+      return if last_chunk.end_with?("\n")
+
+      loop do
+        chunk = @input.gets("\n", READ_CHUNK_BYTES)
+        return if chunk.nil? || chunk.end_with?("\n")
       end
     end
   end
