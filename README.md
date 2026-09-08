@@ -132,7 +132,7 @@ Logging goes through `ACP.logger` (a `Logger`, `WARN` level by default); assign 
 
 ## Updating the schema
 
-`schema/schema.json`, `schema/meta.json` and `schema/VERSION` are vendored from the [ACP repository](https://github.com/agentclientprotocol/agent-client-protocol). After replacing them run:
+`schema/schema.json`, `schema/meta.json` and `schema/VERSION` are vendored from the [ACP repository](https://github.com/agentclientprotocol/agent-client-protocol). Currently vendored: `schema-v1.21.0`. After replacing them run:
 
 ```bash
 bundle exec rake gen_schema

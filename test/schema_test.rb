@@ -232,4 +232,9 @@ class AcpSchemaTest < Minitest::Test
     assert_equal File.read(ACP::SchemaGenerator::OUT_SCHEMA), generator.render_schema
     assert_equal File.read(ACP::SchemaGenerator::OUT_META), generator.render_meta
   end
+
+  def test_readme_mentions_vendored_schema_version
+    readme = File.read(File.expand_path("../README.md", __dir__))
+    assert_includes readme, S::SCHEMA_REF.split("/").last
+  end
 end
