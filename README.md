@@ -124,7 +124,7 @@ block.to_h         # => { "type" => "text", "text" => "hi" }
 
 `ACP::Connection` is the transport-agnostic JSON-RPC layer (requests with optional timeouts, ordered notification delivery, observers for tracing traffic). `ACP::NdjsonTransport` wraps a pair of IO objects; `ACP::MemoryTransport.pair` gives two in-memory ends for tests. Inbound lines are capped at 50MB by default (`max_line_bytes:`) so a rogue peer cannot exhaust memory.
 
-Spawning and signal handling (`ACP::Stdio.spawn_agent`, `AgentProcess#kill`) target POSIX platforms.
+Spawning and signal handling (`ACP::Stdio.spawn_agent`, `AgentProcess#kill`) target POSIX platforms. The Windows inherited-environment allowlist ships untested — there is no Windows CI yet.
 
 See `examples/duet.rb` for a runnable in-process agent↔client demo (`ruby -Ilib examples/duet.rb "hello"`).
 

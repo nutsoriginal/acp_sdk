@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [0.3.2]
 
 ### Added
 
@@ -10,6 +10,7 @@ All notable changes to this project will be documented in this file.
   in-memory transports (covered by `test/examples_test.rb`).
 - Windows inherited-env allowlist for spawned agents
   (`APPDATA`, `PATHEXT`, …); process management itself stays POSIX-only.
+  Untested: there is no Windows CI yet.
 
 ### Fixed
 
