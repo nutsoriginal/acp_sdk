@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.3]
+
+### Added
+
+- README now states the vendored schema version (`schema-v1.21.0`);
+  a test enforces it stays in sync with `SCHEMA_REF`.
+
 ## [0.3.2]
 
 ### Added
